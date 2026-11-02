@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-guardslm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-guardslm_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-guardslm}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-guardslm} -d ${POSTGRES_DB:-guardslm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-guardslm}:${POSTGRES_PASSWORD:-guardslm_dev_password}@db:5432/${POSTGRES_DB:-guardslm}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-real-deployments}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
+      CANCEL_SHIPPED_POLICY: ${CANCEL_SHIPPED_POLICY:-BLOCK}
+      RETURN_WINDOW_DAYS: ${RETURN_WINDOW_DAYS:-14}
+      REFUND_WINDOW_DAYS: ${REFUND_WINDOW_DAYS:-30}
+      ENABLE_DEV_RESET: ${ENABLE_DEV_RESET:-true}
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:5173"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5173/ >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  pgdata:
